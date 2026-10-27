@@ -31,3 +31,21 @@ def test_pydantic_valid_payload_normalizes_case():
     assert obj.cve_id == "CVE-2026-1042"
     assert obj.cvss_score == 7.5
     assert obj.patched is True
+from unittest.mock import MagicMock, patch
+from instructor_lite import extract_structured
+
+
+def test_extract_structured_self_heals_on_retry():
+    # Mock LLM Response 1: Invalid cve_id (missing 'CVE-')
+    bad_msg = MagicMock()
+    bad_msg.choices[0].message.content = '{"cve_id": "2026-8812", "cvss_score": 9.4, "patched": false}'
+
+    # Mock LLM Response 2: Fixed cve_id after receiving Pydantic ValidationError feedback
+    good_msg = MagicMock()
+    good_msg.choices[0].message.content = '{"cve_id": "CVE-2026-8812", "cvss_score": 9.4, "patched": false}'
+
+    with patch("instructor_lite.groq_client.chat.completions.create", side_effect=[bad_msg, good_msg]) as mock_create:
+        result = extract_structured("Test log", VulnerabilityTicket, max_retries=3)
+
+        assert result.cve_id == "CVE-2026-8812"
+        assert mock_create.call_count == 2  # Prove it failed once, appended error, and succeeded on retry!
