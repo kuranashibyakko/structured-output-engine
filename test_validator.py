@@ -49,3 +49,31 @@ def test_extract_structured_self_heals_on_retry():
 
         assert result.cve_id == "CVE-2026-8812"
         assert mock_create.call_count == 2  # Prove it failed once, appended error, and succeeded on retry!
+
+from incident_router import CompromisedHost, IncidentReport, dispatch_incident
+
+
+def test_nested_host_ipv4_and_port_validators():
+    # Valid host
+    host = CompromisedHost(hostname="db-01", ip_address="10.0.0.1", port=5432)
+    assert host.ip_address == "10.0.0.1"
+
+    # Invalid IPv4 octet (999) should fail validation
+    with pytest.raises( Exception ):
+        CompromisedHost(hostname="db-01", ip_address="999.0.0.1", port=5432)
+
+    # Invalid port (70000) should fail validation
+    with pytest.raises( Exception ):
+        CompromisedHost(hostname="db-01", ip_address="10.0.0.1", port=70000)
+
+
+def test_dispatch_incident_routing():
+    report = IncidentReport(
+        summary="Exfiltration detected",
+        severity="CRITICAL",
+        compromised_hosts=[CompromisedHost(hostname="node-1", ip_address="192.168.1.5", port=443)],
+        requires_network_isolation=True,
+    )
+    action = dispatch_incident(report)
+    assert "[DEFCON-1 ISOLATION]" in action
+    assert "192.168.1.5" in action
